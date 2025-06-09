@@ -1,0 +1,8 @@
+[h1] Description [/h1]
+This mod adds the Slot Machine, which enables you to GAMBLE!!!
+
+
+[h1] Recipe[/h1]
+- 10 Wood
+- 20 Gold Coins
+

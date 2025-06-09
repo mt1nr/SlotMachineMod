@@ -1,0 +1,6 @@
+Items: {
+	SlotMachineItem: {
+		DisplayName: Slot Machine Item
+		Tooltip: ""
+	}
+}
