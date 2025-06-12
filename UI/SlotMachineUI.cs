@@ -13,6 +13,7 @@ using Terraria.Audio;
 using SlotMachine;
 using System.Threading.Tasks;
 using Terraria.GameContent;
+using System.Diagnostics;
 
 namespace SlotMachineItem.UI
 {
@@ -22,16 +23,17 @@ namespace SlotMachineItem.UI
 		private UIImage SlotMachineImage;
 		private int? playerBet;
 		private int betAmount = 1;
-		private bool _isVisible = false;
 		private double _lastGambleTime = 0;
+		private bool _isVisible = false;
 		private bool _isClicking = false;
 		public bool IsActive => _isVisible;
+		private bool _isSpinning = false;
+		private bool _prevMouseLeftState = false;
+		private string _tooltipText;
 		private SlotMachineWheel _wheel1;
 		private SlotMachineWheel _wheel2;
 		private SlotMachineWheel _wheel3;
-		private bool _isSpinning = false;
 		private SoundStyle _winSound, _startSound;
-		private string _tooltipText;
 		private Asset<Texture2D> _originalTexture;
 		private Asset<Texture2D> _gamblingTexture;
 
@@ -88,11 +90,13 @@ namespace SlotMachineItem.UI
 			_isVisible = true;
 
 			float uiScale = Main.UIScale;
-			float centerX = (Main.screenWidth - (_container.Width.Pixels * uiScale)) / 2;
-			float centerY = (Main.screenHeight - (_container.Height.Pixels * uiScale)) / 2;
+			float containerWidth = _container.Width.Pixels * uiScale;
+			float containerHeight = _container.Height.Pixels * uiScale;
+			float containerLeft = (Main.screenWidth - containerWidth) / 2f;
+			float containerTop = (Main.screenHeight - containerHeight) / 2f;
 
-			_container.Left.Set(centerX / uiScale, 0f);
-			_container.Top.Set(centerY / uiScale, 0f);
+			_container.Left.Set(containerLeft / uiScale, 0f);
+			_container.Top.Set(containerTop / uiScale, 0f);
 			_container.Recalculate();
 		}
 
@@ -160,7 +164,14 @@ namespace SlotMachineItem.UI
 
 		public bool IsMouseOverUI()
 		{
-			return SlotMachineImage.IsMouseHovering;
+			float containerLeft = _container.GetDimensions().X;
+			float containerTop = _container.GetDimensions().Y;
+			float containerWidth = _container.GetDimensions().Width;
+			float containerHeight = _container.GetDimensions().Height;
+			Vector2 mousePosition = new Vector2(Main.mouseX, Main.mouseY);
+
+			return mousePosition.X >= containerLeft && mousePosition.X <= containerLeft + containerWidth
+				&& mousePosition.Y >= containerTop && mousePosition.Y <= containerTop + containerHeight;
 		}
 
 		private void AdjustBetAmount(int amount)
@@ -351,18 +362,22 @@ namespace SlotMachineItem.UI
 
 		private int GetMouseOverArea()
 		{
-			Vector2 mousePosition = new Vector2(Main.mouseX, Main.mouseY);
-			CalculatedStyle dimensions = _container.GetDimensions();
+			float containerWidth = _container.Width.Pixels;
+			float containerHeight = _container.Height.Pixels;
+			float containerLeft = (Main.screenWidth - containerWidth) / 2f;
+			float containerTop = (Main.screenHeight - containerHeight) / 2f;
 
-			float areaWidth = 20;
-			float areaLeft1 = dimensions.X + 59;
+			Vector2 mousePosition = new Vector2(Main.mouseX, Main.mouseY);
+
+			float areaWidth = 20f;
+			float areaLeft1 = containerLeft + 59f;
 			float areaRight1 = areaLeft1 + areaWidth;
-			float areaLeft2 = areaRight1 + 8;
+			float areaLeft2 = areaRight1 + 8f;
 			float areaRight2 = areaLeft2 + areaWidth;
-			float areaLeft3 = areaRight2 + 5;
+			float areaLeft3 = areaRight2 + 5f;
 			float areaRight3 = areaLeft3 + areaWidth;
-			float areaTop = dimensions.Y + 206;
-			float areaBottom = dimensions.Y + dimensions.Height - 77;
+			float areaTop = containerTop + 206f;
+			float areaBottom = containerTop + containerHeight - 77f;
 
 			if (mousePosition.X >= areaLeft1 && mousePosition.X <= areaRight1 &&
 				mousePosition.Y >= areaTop && mousePosition.Y <= areaBottom)
@@ -425,7 +440,8 @@ namespace SlotMachineItem.UI
 			int totalGoldValue = playerGoldCoins + playerPlatinumCoins * 100;
 
 			int hoveredArea = GetMouseOverArea();
-			if (_isSpinning & IsMouseOverUI() & hoveredArea == 0)
+
+			if (_isSpinning && IsMouseOverUI() && hoveredArea == 0)
 			{
 				_tooltipText = "Mod by Martin";
 			}
@@ -467,10 +483,18 @@ namespace SlotMachineItem.UI
 				_tooltipText = null;
 			}
 
-			if (Main.mouseLeft && Main.mouseLeftRelease)
+			if ((hoveredArea != 0 || IsMouseOverUI()))
+			{
+				Main.LocalPlayer.mouseInterface = true;
+			}
+
+			// Updated click detection: only processes click if mouse released while over UI
+			bool currentMouseLeft = Main.mouseLeft;
+			if (_prevMouseLeftState && !currentMouseLeft && IsMouseOverUI())
 			{
 				HandleMouseClick();
 			}
+			_prevMouseLeftState = currentMouseLeft;
 		}
 
 		public override void Draw(SpriteBatch spriteBatch)
@@ -485,9 +509,9 @@ namespace SlotMachineItem.UI
 			{
 				Vector2 mousePosition = new Vector2(Main.mouseX, Main.mouseY);
 				Vector2 textSize = FontAssets.MouseText.Value.MeasureString(_tooltipText);
-				Vector2 textPosition = mousePosition + new Vector2(16f, 16f); // offset text from mouse cursor
+				Vector2 textPosition = mousePosition + new Vector2(16f, 16f); // Offset text from mouse cursor
 
-				// background for tooltip
+				// Background for tooltip
 				spriteBatch.Draw(TextureAssets.MagicPixel.Value, new Rectangle((int)textPosition.X - 4, (int)textPosition.Y - 4, (int)textSize.X + 8, (int)textSize.Y + 8), Color.Black * 0.75f);
 
 				Color textColor = Color.White;
