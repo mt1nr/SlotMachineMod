@@ -21,11 +21,8 @@ namespace SlotMachineItem.UI
 	{
 		private UIPanel _container;
 		private UIImage SlotMachineImage;
-		private int? playerBet;
 		private int betAmount = 1;
-		private double _lastGambleTime = 0;
 		private bool _isVisible = false;
-		private bool _isClicking = false;
 		public bool IsActive => _isVisible;
 		private bool _isSpinning = false;
 		private bool _prevMouseLeftState = false;
@@ -81,14 +78,17 @@ namespace SlotMachineItem.UI
 			_container.Append(SlotMachineImage);
 
 			Append(_container);
-
-			this.Hide();
+			_isVisible = false;
 		}
 
 		public void Show()
 		{
+			if (_isVisible)
+				return;
+
 			_isVisible = true;
 
+			// Center the UI
 			float uiScale = Main.UIScale;
 			float containerWidth = _container.Width.Pixels * uiScale;
 			float containerHeight = _container.Height.Pixels * uiScale;
@@ -98,12 +98,34 @@ namespace SlotMachineItem.UI
 			_container.Left.Set(containerLeft / uiScale, 0f);
 			_container.Top.Set(containerTop / uiScale, 0f);
 			_container.Recalculate();
+
+			if (!Main.playerInventory)
+			{
+				Main.playerInventory = true;
+			}
+			Main.InGameUI.SetState(this);
 		}
 
 		public void Hide()
 		{
+			if (!_isVisible)
+				return;
+
 			_isVisible = false;
-			this.Remove();
+			StopSpin();
+			Terraria.Audio.SoundEngine.StopTrackedSounds();
+			ResetUI();
+			if (Main.InGameUI.CurrentState == this)
+				Main.InGameUI.SetState(null);
+		}
+
+		public void ResetUI()
+		{
+			_isSpinning = false;
+			_isVisible = false;
+			_tooltipText = null;
+			SlotMachineImage?.SetImage(_originalTexture?.Value);
+			_prevMouseLeftState = false;
 		}
 
 		public void StartGambling()
@@ -336,7 +358,7 @@ namespace SlotMachineItem.UI
 				{
 					Vector2 offset = new Vector2(Main.rand.NextFloat(-50, 50), Main.rand.NextFloat(-50, 50));
 					Vector2 particlePosition = position + offset;
-					int dustType = dustTypes[Main.rand.Next(dustTypes.Length)]; // Randomly select a dust type
+					int dustType = dustTypes[Main.rand.Next(dustTypes.Length)]; // Randomly selecting dust type
 					Dust dust = Dust.NewDustDirect(particlePosition, 10, 10, dustType, Main.rand.NextFloat(-3f, 3f), Main.rand.NextFloat(-3f, 3f));
 					dust.noGravity = true;
 					dust.scale = 1.5f;
@@ -353,7 +375,7 @@ namespace SlotMachineItem.UI
 				float angle = Main.rand.NextFloat(0, MathHelper.TwoPi);
 				Vector2 offset = new Vector2((float)Math.Cos(angle), (float)Math.Sin(angle)) * radius;
 				Vector2 particlePosition = center + offset;
-				int dustType = dustTypes[Main.rand.Next(dustTypes.Length)]; // Randomly select a dust type
+				int dustType = dustTypes[Main.rand.Next(dustTypes.Length)]; // Randomly selecting dust type
 				Dust dust = Dust.NewDustDirect(particlePosition, 10, 10, dustType, Main.rand.NextFloat(-3f, 3f), Main.rand.NextFloat(-3f, 3f));
 				dust.noGravity = true;
 				dust.scale = 1.5f;
@@ -428,13 +450,33 @@ namespace SlotMachineItem.UI
 		{
 			base.Update(gameTime);
 
+			// Close UI and abort spin if item is not in inventory
+			Player player = Main.LocalPlayer;
+			bool hasSlotMachine = false;
+			for (int i = 0; i < player.inventory.Length; i++)
+			{
+				if (player.inventory[i] != null && player.inventory[i].ModItem is SlotMachine.Items.SlotMachineItem)
+				{
+					hasSlotMachine = true;
+					break;
+				}
+			}
+			if (!hasSlotMachine)
+			{
+				Hide();
+				ResetUI();
+				// Set the player's slotMachineUI reference to null so a new UI is created next time
+				var modPlayer = player.GetModPlayer<SlotMachine.SlotMachinePlayer>();
+				modPlayer.slotMachineUI = null;
+				return;
+			}
+
 			if (_isSpinning && !_wheel1.IsSpinning && !_wheel2.IsSpinning && !_wheel3.IsSpinning)
 			{
 				StopSpin();
 				CheckWinCondition();
 			}
 
-			Player player = Main.LocalPlayer;
 			int playerGoldCoins = player.inventory.Where(item => item.type == ItemID.GoldCoin).Sum(item => item.stack);
 			int playerPlatinumCoins = player.inventory.Where(item => item.type == ItemID.PlatinumCoin).Sum(item => item.stack);
 			int totalGoldValue = playerGoldCoins + playerPlatinumCoins * 100;
@@ -490,7 +532,7 @@ namespace SlotMachineItem.UI
 
 			// Updated click detection: only processes click if mouse released while over UI
 			bool currentMouseLeft = Main.mouseLeft;
-			if (_prevMouseLeftState && !currentMouseLeft && IsMouseOverUI())
+			if (_prevMouseLeftState && !currentMouseLeft && IsMouseOverUI() && _isVisible)
 			{
 				HandleMouseClick();
 			}
