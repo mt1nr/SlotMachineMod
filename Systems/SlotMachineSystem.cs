@@ -14,18 +14,12 @@ namespace SlotMachine
 		public UserInterface _slotMachineInterface;
 		private SlotMachineUI _slotMachineUI;
 
-		public override void Load()
-		{
-			if (!Main.dedServ)
-			{
-				// load slot machine texture
+		public override void PostSetupContent() {
+			if (!Main.dedServ) {
 				slotMachineTexture = ModContent.Request<Texture2D>("SlotMachine/Textures/SlotMachineTexture").Value;
-
-				// set up UI and interface
 				_slotMachineInterface = new UserInterface();
 				_slotMachineUI = new SlotMachineUI();
 				_slotMachineUI.Activate();
-				_slotMachineInterface.SetState(_slotMachineUI);
 			}
 		}
 

@@ -19,7 +19,8 @@ namespace SlotMachineItem.UI
 {
 	public class SlotMachineUI : UIState
 	{
-		private UIPanel _container;
+		//private UIPanel _container;
+		private SlotMachineDraggableUIPanel _container;
 		private UIImage SlotMachineImage;
 		private int betAmount = 1;
 		private bool _isVisible = false;
@@ -33,6 +34,11 @@ namespace SlotMachineItem.UI
 		private SoundStyle _winSound, _startSound;
 		private Asset<Texture2D> _originalTexture;
 		private Asset<Texture2D> _gamblingTexture;
+		private Vector2 _mouseDownPosition;
+		private bool _wasDragging;
+		private const float DragThreshold = 5f; // pixels of movement to count as a drag
+		private float _savedLeft = -1f; // -1 means "not saved yet, use center"
+		private float _savedTop = -1f;
 
 		public override void OnInitialize()
 		{
@@ -43,7 +49,7 @@ namespace SlotMachineItem.UI
 
 			_winSound = new SoundStyle("SlotMachine/Sounds/WinSound");
 
-			_container = new UIPanel();
+			_container = new SlotMachineDraggableUIPanel();
 			_container.Width.Set(268f, 0f);
 			_container.Height.Set(298f, 0f);
 			_container.BackgroundColor = new Color(0, 0, 0, 0);
@@ -55,6 +61,7 @@ namespace SlotMachineItem.UI
 			SlotMachineImage = new UIImage(_originalTexture.Value);
 			SlotMachineImage.Width.Set(264f, 0f);
 			SlotMachineImage.Height.Set(294f, 0f);
+			SlotMachineImage.IgnoresMouseInteraction = true;
 
 			Asset<Texture2D> wheelTexture = ModContent.Request<Texture2D>("SlotMachine/Textures/UI/SlotMachineWheel");
 
@@ -83,40 +90,42 @@ namespace SlotMachineItem.UI
 
 		public void Show()
 		{
-			if (_isVisible)
-				return;
-
+			if (_isVisible) return;
 			_isVisible = true;
 
-			// Center the UI
-			float uiScale = Main.UIScale;
-			float containerWidth = _container.Width.Pixels * uiScale;
-			float containerHeight = _container.Height.Pixels * uiScale;
-			float containerLeft = (Main.screenWidth - containerWidth) / 2f;
-			float containerTop = (Main.screenHeight - containerHeight) / 2f;
-
-			_container.Left.Set(containerLeft / uiScale, 0f);
-			_container.Top.Set(containerTop / uiScale, 0f);
-			_container.Recalculate();
-
-			if (!Main.playerInventory)
+			if (_savedLeft < 0 || _savedTop < 0)
 			{
-				Main.playerInventory = true;
+				// First time opening — center it
+				_container.Left.Set((Main.screenWidth / Main.UIScale - _container.Width.Pixels) / 2f, 0f);
+				_container.Top.Set((Main.screenHeight / Main.UIScale - _container.Height.Pixels) / 2f, 0f);
 			}
-			Main.InGameUI.SetState(this);
+			else
+			{
+				// Restore last position
+				_container.Left.Set(_savedLeft, 0f);
+				_container.Top.Set(_savedTop, 0f);
+			}
+
+			_container.Recalculate();
+			_prevMouseLeftState = true;
+			_wasDragging = false;
+
+			if (!Main.playerInventory) Main.playerInventory = true;
+			ModContent.GetInstance<SlotMachineSystem>()._slotMachineInterface.SetState(this);
 		}
 
 		public void Hide()
 		{
-			if (!_isVisible)
-				return;
+			if (!_isVisible) return;
+
+			_savedLeft = _container.Left.Pixels;
+			_savedTop = _container.Top.Pixels;
 
 			_isVisible = false;
 			StopSpin();
 			Terraria.Audio.SoundEngine.StopTrackedSounds();
 			ResetUI();
-			if (Main.InGameUI.CurrentState == this)
-				Main.InGameUI.SetState(null);
+			ModContent.GetInstance<SlotMachineSystem>()._slotMachineInterface.SetState(null);
 		}
 
 		public void ResetUI()
@@ -384,10 +393,9 @@ namespace SlotMachineItem.UI
 
 		private int GetMouseOverArea()
 		{
-			float containerWidth = _container.Width.Pixels;
-			float containerHeight = _container.Height.Pixels;
-			float containerLeft = (Main.screenWidth - containerWidth) / 2f;
-			float containerTop = (Main.screenHeight - containerHeight) / 2f;
+			// Use actual container position instead of hardcoded center
+			float containerLeft = _container.GetDimensions().X;
+			float containerTop = _container.GetDimensions().Y;
 
 			Vector2 mousePosition = new Vector2(Main.mouseX, Main.mouseY);
 
@@ -399,23 +407,17 @@ namespace SlotMachineItem.UI
 			float areaLeft3 = areaRight2 + 5f;
 			float areaRight3 = areaLeft3 + areaWidth;
 			float areaTop = containerTop + 206f;
-			float areaBottom = containerTop + containerHeight - 77f;
+			float areaBottom = containerTop + _container.GetDimensions().Height - 77f;
 
 			if (mousePosition.X >= areaLeft1 && mousePosition.X <= areaRight1 &&
 				mousePosition.Y >= areaTop && mousePosition.Y <= areaBottom)
-			{
 				return 1;
-			}
 			else if (mousePosition.X >= areaLeft2 && mousePosition.X <= areaRight2 &&
-					 mousePosition.Y >= areaTop && mousePosition.Y <= areaBottom)
-			{
+					mousePosition.Y >= areaTop && mousePosition.Y <= areaBottom)
 				return 2;
-			}
 			else if (mousePosition.X >= areaLeft3 && mousePosition.X <= areaRight3 &&
-					 mousePosition.Y >= areaTop && mousePosition.Y <= areaBottom)
-			{
+					mousePosition.Y >= areaTop && mousePosition.Y <= areaBottom)
 				return 3;
-			}
 
 			return 0;
 		}
@@ -441,7 +443,7 @@ namespace SlotMachineItem.UI
 					AdjustBetAmount(-betAmount / 2);
 					break;
 				default:
-					StartGambling();
+					if (IsMouseOverUI()) StartGambling();
 					break;
 			}
 		}
@@ -530,12 +532,31 @@ namespace SlotMachineItem.UI
 				Main.LocalPlayer.mouseInterface = true;
 			}
 
-			// Updated click detection: only processes click if mouse released while over UI
 			bool currentMouseLeft = Main.mouseLeft;
+
+			// On mouse down, record position
+			if (currentMouseLeft && !_prevMouseLeftState)
+			{
+				_mouseDownPosition = new Vector2(Main.mouseX, Main.mouseY);
+				_wasDragging = false;
+			}
+
+			// While held, check if mouse moved enough to count as a drag
+			if (currentMouseLeft && _prevMouseLeftState)
+			{
+				float dist = Vector2.Distance(new Vector2(Main.mouseX, Main.mouseY), _mouseDownPosition);
+				if (dist > DragThreshold)
+					_wasDragging = true;
+			}
+
+			// On mouse release, only handle click if we didn't drag
 			if (_prevMouseLeftState && !currentMouseLeft && IsMouseOverUI() && _isVisible)
 			{
-				HandleMouseClick();
+				if (!_wasDragging)
+					HandleMouseClick();
+				_wasDragging = false;
 			}
+
 			_prevMouseLeftState = currentMouseLeft;
 		}
 
